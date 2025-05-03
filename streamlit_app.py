@@ -6,8 +6,38 @@ import numpy as np # Import numpy for median and other calculations
 import time # For potential future use, though not strictly needed for this static analysis
 
 # --- Configuration ---
-# Add BTC/USD to the instrument list and change E_NQ-10 to E_NQ-100
-INSTRUMENT_LIST = ["BTC/USD", "E_XJO-ASX", "E_NQ-100"]
+# Updated instrument list with codes and a mapping to human-readable names
+INSTRUMENT_CODES = [
+    "BTC/USD",
+    "E_XJO-ASX",
+    "E_NQ-100",
+    "E_DAAX",
+    "E_CAAC-40",
+    "E_DJE50XX",
+    "E_Futsee-100",
+    "E_H-Kong",
+    "E_IBC-MAC",
+    "E_N225Jap",
+    "E_SandP-500",
+    "VOL.IDX%2FUSD"
+]
+
+# Mapping from instrument code to human-readable name
+INSTRUMENT_NAMES = {
+    "BTC/USD": "Bitcoin / US Dollar",
+    "E_XJO-ASX": "Australia 200 (ASX)",
+    "E_NQ-100": "Nasdaq 100",
+    "E_DAAX": "Germany 40 (DAX)",
+    "E_CAAC-40": "France 40 (CAC)",
+    "E_DJE50XX": "Euro Stoxx 50",
+    "E_Futsee-100": "UK 100 (FTSE)",
+    "E_H-Kong": "Hong Kong 50 (Hang Seng)",
+    "E_IBC-MAC": "Spain 35 (IBEX)",
+    "E_N225Jap": "Japan 225 (Nikkei)",
+    "E_SandP-500": "US 500 (S&P)",
+    "VOL.IDX/USD": "Volatility Index (VIX)" # Assuming this is the VIX
+}
+
 INTERVAL_OPTIONS = {
     "15 Minute": "15MIN",
     "1 Hour": "1HOUR",
@@ -18,22 +48,25 @@ FETCH_LIMIT = 1000
 # Multiplier for defining a "large" move - This will now be controlled by a slider
 
 # --- Analysis Function (Keep the existing one) ---
-def analyze_price_moves(df: pd.DataFrame, instrument_name: str, interval_name: str, multiplier: float):
+def analyze_price_moves(df: pd.DataFrame, instrument_code: str, interval_name: str, multiplier: float):
     """
     Analyzes price movements for a given DataFrame and interval.
 
     Args:
         df (pd.DataFrame): DataFrame with historical price data, indexed by Date.
                           Must contain a 'Close' column.
-        instrument_name (str): The name of the instrument (e.g., "BTC/USD").
+        instrument_code (str): The code of the instrument (e.g., "BTC/USD").
         interval_name (str): The name of the interval (e.g., "15 Minute").
         multiplier (float): The multiplier for the median move to define a "large" move.
 
     Returns:
         dict: A dictionary containing the analysis results for one interval and instrument.
     """
+    # Use the human-readable name in the results dictionary
+    instrument_name = INSTRUMENT_NAMES.get(instrument_code, instrument_code) # Get name, default to code if not found
+
     results = {
-        "Instrument": instrument_name, # Include instrument name in results
+        "Instrument": instrument_name, # Use human-readable name here
         "Interval": interval_name,
         "Median Move (%)": None,
         "Total Bars": 0,
@@ -43,9 +76,9 @@ def analyze_price_moves(df: pd.DataFrame, instrument_name: str, interval_name: s
         "Large Neg Moves Count": 0,
         "Large Neg Moves Freq (%)": "N/A",
         "Avg Gap Neg Moves": "N/A",
-        "Last Pos Move Time": "Never", # Keep for internal calculation if needed, but won't display in comparison tables
+        "Last Pos Move Time": "Never", # Keep for internal calculation if needed
         "Bars Since Last Pos Move": "N/A",
-        "Last Neg Move Time": "Never", # Keep for internal calculation if needed, but won't display in comparison tables
+        "Last Neg Move Time": "Never", # Keep for internal calculation if needed
         "Bars Since Last Neg Move": "N/A",
         "Spike Pending Ratio (Pos)": "N/A",
         "Spike Pending Ratio (Neg)": "N/A"
@@ -157,7 +190,7 @@ def analyze_price_moves(df: pd.DataFrame, instrument_name: str, interval_name: s
         results["Spike Pending Ratio (Neg)"] = f"{results['Spike Pending Ratio (Neg)']:.4f}"
 
 
-    results["Status"] = "Success"
+    results["Status"] = "Success" # Keep status in results dictionary for potential debugging
     return results
 
 # --- Streamlit UI Setup ---
@@ -183,13 +216,13 @@ if st.button("Run Spike Ratio Comparison", key='run_spike_comparison'):
 
     # Use a spinner for the entire comparison process
     with st.spinner(f"Analyzing spike ratios for all instruments with multiplier {large_move_multiplier_comparison:.2f}..."):
-        # Iterate through all instruments
-        for instrument in INSTRUMENT_LIST:
+        # Iterate through all instrument codes
+        for instrument_code in INSTRUMENT_CODES:
             # Iterate through all intervals
             for interval_name, interval_key in INTERVAL_OPTIONS.items():
                 try:
                     df_interval = fetch_stock_indices_data(
-                        instrument=instrument,
+                        instrument=instrument_code, # Use the code for fetching
                         offer_side="B", # Using Bid side for consistency
                         interval=interval_key,
                         limit=FETCH_LIMIT, # Fetch a good amount of data
@@ -197,42 +230,52 @@ if st.button("Run Spike Ratio Comparison", key='run_spike_comparison'):
                     )
 
                     if not df_interval.empty:
-                        # Perform the analysis, passing instrument name
-                        results = analyze_price_moves(df_interval, instrument, interval_name, large_move_multiplier_comparison)
-                        # Store only the relevant comparison data
+                        # Perform the analysis, passing instrument code
+                        results = analyze_price_moves(df_interval, instrument_code, interval_name, large_move_multiplier_comparison)
+                        # Store the relevant comparison data
                         all_comparison_results.append({
-                            "Instrument": instrument,
+                            "Instrument": results.get("Instrument", instrument_code), # Use the name from results, default to code
                             "Interval": interval_name,
-                            "Spike Pending Ratio (Pos)": results.get("Spike Pending Ratio (Pos)", "N/A"), # Use .get to handle potential missing keys
+                            "Spike Pending Ratio (Pos)": results.get("Spike Pending Ratio (Pos)", "N/A"),
                             "Spike Pending Ratio (Neg)": results.get("Spike Pending Ratio (Neg)", "N/A"),
-                            "Median Move (%)": results.get("Median Move (%)", "N/A"), # Include Median Move (%)
-                            "Bars Since Last Pos Move": results.get("Bars Since Last Pos Move", "N/A"), # Include Bars Since Last Pos Move
-                            "Bars Since Last Neg Move": results.get("Bars Since Last Neg Move", "N/A"), # Include Bars Since Last Neg Move
-                            "Status": results.get("Status", "Unknown")
+                            "Median Move (%)": results.get("Median Move (%)", "N/A"),
+                            "Bars Since Last Pos Move": results.get("Bars Since Last Pos Move", "N/A"),
+                            "Bars Since Last Neg Move": results.get("Bars Since Last Neg Move", "N/A"),
+                            "Avg Gap Pos Moves": results.get("Avg Gap Pos Moves", "N/A"),
+                            "Avg Gap Neg Moves": results.get("Avg Gap Neg Moves", "N/A"),
+                            "Status": results.get("Status", "Unknown") # Keep status in the list for potential filtering/debugging
                         })
                     else:
+                         # Use the human-readable name even if no data
+                         instrument_name = INSTRUMENT_NAMES.get(instrument_code, instrument_code)
                          all_comparison_results.append({
-                            "Instrument": instrument,
+                            "Instrument": instrument_name,
                             "Interval": interval_name,
                             "Spike Pending Ratio (Pos)": "N/A",
                             "Spike Pending Ratio (Neg)": "N/A",
-                            "Median Move (%)": "N/A", # Include Median Move (%)
-                            "Bars Since Last Pos Move": "N/A", # Include Bars Since Last Pos Move
-                            "Bars Since Last Neg Move": "N/A", # Include Bars Since Last Neg Move
+                            "Median Move (%)": "N/A",
+                            "Bars Since Last Pos Move": "N/A",
+                            "Bars Since Last Neg Move": "N/A",
+                            "Avg Gap Pos Moves": "N/A",
+                            "Avg Gap Neg Moves": "N/A",
                             "Status": "No Data"
                         })
 
 
                 except Exception as e:
+                    # Use the human-readable name even if error
+                    instrument_name = INSTRUMENT_NAMES.get(instrument_code, instrument_code)
                     # Append an error result for this instrument and interval
                     all_comparison_results.append({
-                        "Instrument": instrument,
+                        "Instrument": instrument_name,
                         "Interval": interval_name,
                         "Spike Pending Ratio (Pos)": "N/A",
                         "Spike Pending Ratio (Neg)": "N/A",
-                        "Median Move (%)": "N/A", # Include Median Move (%)
-                        "Bars Since Last Pos Move": "N/A", # Include Bars Since Last Pos Move
-                        "Bars Since Last Neg Move": "N/A", # Include Bars Since Last Neg Move
+                        "Median Move (%)": "N/A",
+                        "Bars Since Last Pos Move": "N/A",
+                        "Bars Since Last Neg Move": "N/A",
+                        "Avg Gap Pos Moves": "N/A",
+                        "Avg Gap Neg Moves": "N/A",
                         "Status": f"Error: {e}"
                     })
 
@@ -247,8 +290,11 @@ if st.button("Run Spike Ratio Comparison", key='run_spike_comparison'):
         comparison_df['Spike Pending Ratio (Neg)'] = pd.to_numeric(comparison_df['Spike Pending Ratio (Neg)'], errors='coerce')
         # Ensure other numeric columns are numeric, coercing errors to NaN
         comparison_df['Median Move (%)'] = pd.to_numeric(comparison_df['Median Move (%)'], errors='coerce')
-        comparison_df['Bars Since Last Pos Move'] = pd.to_numeric(comparison_df['Bars Since Last Pos Move'], errors='coerce').fillna("N/A").astype(str).replace('nan', 'N/A') # Handle potential NaN after coerce
-        comparison_df['Bars Since Last Neg Move'] = pd.to_numeric(comparison_df['Bars Since Last Neg Move'], errors='coerce').fillna("N/A").astype(str).replace('nan', 'N/A') # Handle potential NaN after coerce
+        # Convert Bars Since and Avg Gap to numeric, handle NaN, then convert to string for display
+        comparison_df['Bars Since Last Pos Move'] = pd.to_numeric(comparison_df['Bars Since Last Pos Move'], errors='coerce').fillna("N/A").astype(str).replace('nan', 'N/A')
+        comparison_df['Bars Since Last Neg Move'] = pd.to_numeric(comparison_df['Bars Since Last Neg Move'], errors='coerce').fillna("N/A").astype(str).replace('nan', 'N/A')
+        comparison_df['Avg Gap Pos Moves'] = pd.to_numeric(comparison_df['Avg Gap Pos Moves'], errors='coerce').fillna("N/A").astype(str).replace('nan', 'N/A')
+        comparison_df['Avg Gap Neg Moves'] = pd.to_numeric(comparison_df['Avg Gap Neg Moves'], errors='coerce').fillna("N/A").astype(str).replace('nan', 'N/A')
 
 
         # Display separate tables for each interval and ratio type, sorted by ratio
@@ -259,14 +305,14 @@ if st.button("Run Spike Ratio Comparison", key='run_spike_comparison'):
             if not interval_df.empty:
                 st.write(f"#### {interval_name}")
 
-                # Table for Positive Ratios, sorted by least - Include Median Move (%) and Bars Since Last Moves
+                # Table for Positive Ratios, sorted by least - Display requested columns
                 st.write(f"##### Positive Ratios (Sorted by Least)")
-                pos_ratio_table = interval_df[['Instrument', 'Spike Pending Ratio (Pos)', 'Median Move (%)', 'Bars Since Last Pos Move', 'Bars Since Last Neg Move', 'Status']].sort_values(by='Spike Pending Ratio (Pos)', ascending=True).reset_index(drop=True)
+                pos_ratio_table = interval_df[['Instrument', 'Spike Pending Ratio (Pos)', 'Median Move (%)', 'Bars Since Last Pos Move', 'Avg Gap Pos Moves']].sort_values(by='Spike Pending Ratio (Pos)', ascending=True).reset_index(drop=True)
                 st.dataframe(pos_ratio_table, use_container_width=True)
 
-                # Table for Negative Ratios, sorted by least - Include Median Move (%) and Bars Since Last Moves
+                # Table for Negative Ratios, sorted by least - Display requested columns
                 st.write(f"##### Negative Ratios (Sorted by Least)")
-                neg_ratio_table = interval_df[['Instrument', 'Spike Pending Ratio (Neg)', 'Median Move (%)', 'Bars Since Last Pos Move', 'Bars Since Last Neg Move', 'Status']].sort_values(by='Spike Pending Ratio (Neg)', ascending=True).reset_index(drop=True)
+                neg_ratio_table = interval_df[['Instrument', 'Spike Pending Ratio (Neg)', 'Median Move (%)', 'Bars Since Last Neg Move', 'Avg Gap Neg Moves']].sort_values(by='Spike Pending Ratio (Neg)', ascending=True).reset_index(drop=True)
                 st.dataframe(neg_ratio_table, use_container_width=True)
             else:
                 st.info(f"No comparison data available for {interval_name}.")
