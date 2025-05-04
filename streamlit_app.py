@@ -50,7 +50,7 @@ REFRESH_INTERVAL_SECONDS = 15 * 60
 
 # Multiplier for defining a "large" move - This will be controlled by a slider
 
-# --- Analysis Function (Used by Tab 1) ---
+# --- Analysis Function (Used by both tabs) ---
 def analyze_price_moves(df: pd.DataFrame, instrument_code: str, interval_name: str, multiplier: float):
     """
     Analyzes price movements for a given DataFrame and interval.
@@ -177,7 +177,7 @@ def analyze_price_moves(df: pd.DataFrame, instrument_code: str, interval_name: s
          results["Spike Pending Ratio (Pos)"] = 0.0
 
     if isinstance(results["Spike Pending Ratio (Pos)"], (int, float)):
-        results["Spike Pending Ratio (Pos)"] = f"{results['Spike Pending Ratio (Pos)']:.4f}"
+        results["Spike Pending Ratio (Pos)"] = float(f"{results['Spike Pending Ratio (Pos)']:.4f}") # Store as float for calculation
 
     # Negative Ratio
     neg_count = results["Large Neg Moves Count"]
@@ -190,7 +190,7 @@ def analyze_price_moves(df: pd.DataFrame, instrument_code: str, interval_name: s
          results["Spike Pending Ratio (Neg)"] = 0.0
 
     if isinstance(results["Spike Pending Ratio (Neg)"], (int, float)):
-        results["Spike Pending Ratio (Neg)"] = f"{results['Spike Pending Ratio (Neg)']:.4f}"
+        results["Spike Pending Ratio (Neg)"] = float(f"{results['Spike Pending Ratio (Neg)']:.4f}") # Store as float for calculation
 
 
     results["Status"] = "Success" # Keep status in results dictionary for potential debugging
@@ -200,16 +200,16 @@ def analyze_price_moves(df: pd.DataFrame, instrument_code: str, interval_name: s
 st.title("📊 Market Analysis Dashboard")
 
 # Create tabs
-tab1, tab2 = st.tabs(["🔬 Spike Ratio Comparison (Live)", "📈 Other Analysis / Backtesting"]) # Renamed and reordered tabs
+tab1, tab2 = st.tabs(["🔬 Spike Ratio Comparison (Live)", "📊 Combined Spike Analysis"]) # Renamed second tab
 
 # --- Spike Ratio Comparison Tab (Tab 1 - Live) ---
 with tab1:
     st.header("Spike Ratio Comparison Across Instruments")
-    st.write(f"Compares the Spike Pending Ratios across all instruments for each time interval, sorted by ratio.")
+    st.write(f"Compares the Spike Pending Ratios across all instruments for each time interval, sorted by ratio. This data refreshes every {REFRESH_INTERVAL_SECONDS // 60} minutes.")
 
     # Add a slider for the large move multiplier specifically for this tab's analysis
-    large_move_multiplier_comparison = st.slider(
-        "Large Move Multiplier (x Median) for Comparison",
+    large_move_multiplier_comparison_tab1 = st.slider(
+        "Large Move Multiplier (x Median) for Comparison (Tab 1)",
         min_value=0.1, # Minimum value for the slider
         max_value=5.0, # Maximum value (adjust as needed)
         value=1.33,    # Default value
@@ -226,7 +226,7 @@ with tab1:
         # Display the timestamp of the last analysis start
         with comparison_tables_placeholder.container():
              st.write(f"⏰ Last analysis started at (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
-             st.write(f"🔹 Running comparison analysis for all instruments with multiplier {large_move_multiplier_comparison:.2f}...")
+             st.write(f"🔹 Running comparison analysis for all instruments with multiplier {large_move_multiplier_comparison_tab1:.2f}...")
 
         all_comparison_results = [] # List to hold results for all instruments and intervals
 
@@ -245,8 +245,8 @@ with tab1:
                             time_direction="P"
                         )
 
-                        # Perform the analysis, passing instrument code
-                        results = analyze_price_moves(df_interval, instrument_code, interval_name, large_move_multiplier_comparison)
+                        # Perform the analysis, passing instrument code and multiplier from Tab 1 slider
+                        results = analyze_price_moves(df_interval, instrument_code, interval_name, large_move_multiplier_comparison_tab1)
                         # Store the relevant comparison data
                         all_comparison_results.append({
                             "Instrument": results.get("Instrument", instrument_code), # Use the name from results, default to code
@@ -335,10 +335,106 @@ with tab1:
         countdown_placeholder.empty()
 
 
-# --- Other Analysis / Backtesting Tab (Tab 2 - Placeholder) ---
+# --- Combined Spike Analysis Tab (Tab 2) ---
 with tab2:
-    st.header("Other Analysis / Backtesting")
-    st.write("This tab is reserved for other analysis or strategy backtesting features.")
-    st.write("The Spike Ratio Comparison is available in the first tab and refreshes periodically.")
-    # You can add your previous strategy backtesting code here if desired.
-    # For now, it's just a placeholder.
+    st.header("Combined Spike Ratio Analysis (1 Hour and 1 Day)")
+    st.write("Displays a combined spike ratio (Positive Ratio - Negative Ratio) for 1 Hour and 1 Day intervals across all instruments.")
+
+    # Add a slider for the large move multiplier specifically for this tab's analysis
+    large_move_multiplier_combined = st.slider(
+        "Large Move Multiplier (x Median) for Combined Analysis (Tab 2)",
+        min_value=0.1, # Minimum value for the slider
+        max_value=5.0, # Maximum value (adjust as needed)
+        value=1.33,    # Default value
+        step=0.01,     # Step size
+        key='large_move_multiplier_combined_tab2' # Use a unique key for this slider
+    )
+
+    if st.button("Run Combined Analysis", key='run_combined_analysis_tab2'):
+        st.write("🔹 Running combined analysis for 1 Hour and 1 Day intervals...")
+
+        combined_analysis_results = [] # List to hold results for combined analysis
+
+        # Use a spinner for the entire combined analysis process
+        with st.spinner(f"Analyzing combined spike ratios for all instruments with multiplier {large_move_multiplier_combined:.2f}..."):
+            # Iterate through all instrument codes
+            for instrument_code in INSTRUMENT_CODES:
+                # Iterate only through 1 Hour and 1 Day intervals
+                for interval_name, interval_key in {"1 Hour": "1HOUR", "1 Day": "1DAY"}.items():
+                    try:
+                        df_interval = fetch_stock_indices_data(
+                            instrument=instrument_code, # Use the code for fetching
+                            offer_side="B", # Using Bid side for consistency
+                            interval=interval_key,
+                            limit=FETCH_LIMIT_ANALYSIS, # Use the larger limit for analysis
+                            time_direction="P"
+                        )
+
+                        # Perform the analysis, passing instrument code and multiplier from Tab 2 slider
+                        results = analyze_price_moves(df_interval, instrument_code, interval_name, large_move_multiplier_combined)
+
+                        # Calculate the combined spike ratio (Pos - Neg)
+                        pos_ratio = results.get("Spike Pending Ratio (Pos)", "N/A")
+                        neg_ratio = results.get("Spike Pending Ratio (Neg)", "N/A")
+
+                        combined_ratio = "N/A"
+                        if isinstance(pos_ratio, float) and isinstance(neg_ratio, float):
+                             combined_ratio = pos_ratio - neg_ratio
+                             combined_ratio = f"{combined_ratio:.4f}" # Format the combined ratio
+
+                        # Store the relevant combined analysis data
+                        combined_analysis_results.append({
+                            "Instrument": results.get("Instrument", instrument_code), # Use the name from results, default to code
+                            "Interval": interval_name,
+                            "Combined Spike Ratio (Pos - Neg)": combined_ratio, # New combined ratio column
+                            "Median Move (%)": results.get("Median Move (%)", "N/A"),
+                            "Bars Since Last Pos Move": results.get("Bars Since Last Pos Move", "N/A"),
+                            "Bars Since Last Neg Move": results.get("Bars Since Last Neg Move", "N/A"),
+                            "Avg Gap Pos Moves": results.get("Avg Gap Pos Moves", "N/A"),
+                            "Avg Gap Neg Moves": results.get("Avg Gap Neg Moves", "N/A"),
+                            "Status": results.get("Status", "Unknown") # Keep status for potential filtering/debugging
+                        })
+
+
+                    except Exception as e:
+                        # Use the human-readable name even if error
+                        instrument_name = INSTRUMENT_NAMES.get(instrument_code, instrument_code)
+                        # Append an error result for this instrument and interval
+                        combined_analysis_results.append({
+                            "Instrument": instrument_name,
+                            "Interval": interval_name,
+                            "Combined Spike Ratio (Pos - Neg)": "N/A",
+                            "Median Move (%)": "N/A",
+                            "Bars Since Last Pos Move": "N/A",
+                            "Bars Since Last Neg Move": "N/A",
+                            "Avg Gap Pos Moves": "N/A",
+                            "Avg Gap Neg Moves": "N/A",
+                            "Status": f"Error: {e}"
+                        })
+
+        st.subheader("📈 Combined Analysis Results (1 Hour and 1 Day)")
+
+        if combined_analysis_results:
+            # Convert the list of dictionaries to a pandas DataFrame
+            combined_analysis_df = pd.DataFrame(combined_analysis_results)
+
+            # Ensure combined ratio column is numeric for sorting, coercing errors to NaN
+            combined_analysis_df['Combined Spike Ratio (Pos - Neg)'] = pd.to_numeric(combined_analysis_df['Combined Spike Ratio (Pos - Neg)'], errors='coerce')
+             # Ensure other numeric columns are numeric, coercing errors to NaN
+            combined_analysis_df['Median Move (%)'] = pd.to_numeric(combined_analysis_df['Median Move (%)'], errors='coerce')
+            # Convert Bars Since and Avg Gap to numeric, handle NaN, then convert to string for display
+            combined_analysis_df['Bars Since Last Pos Move'] = pd.to_numeric(combined_analysis_df['Bars Since Last Pos Move'], errors='coerce').fillna("N/A").astype(str).replace('nan', 'N/A')
+            combined_analysis_df['Bars Since Last Neg Move'] = pd.to_numeric(combined_analysis_df['Bars Since Last Neg Move'], errors='coerce').fillna("N/A").astype(str).replace('nan', 'N/A')
+            combined_analysis_df['Avg Gap Pos Moves'] = pd.to_numeric(combined_analysis_df['Avg Gap Pos Moves'], errors='coerce').fillna("N/A").astype(str).replace('nan', 'N/A')
+            combined_analysis_df['Avg Gap Neg Moves'] = pd.to_numeric(combined_analysis_df['Avg Gap Neg Moves'], errors='coerce').fillna("N/A").astype(str).replace('nan', 'N/A')
+
+
+            # Sort the combined table by the new combined ratio (descending)
+            combined_analysis_df_sorted = combined_analysis_df.sort_values(by='Combined Spike Ratio (Pos - Neg)', ascending=False).reset_index(drop=True)
+
+            # Display the combined DataFrame as a table
+            # Display requested columns in the combined table
+            st.dataframe(combined_analysis_df_sorted[['Instrument', 'Interval', 'Combined Spike Ratio (Pos - Neg)', 'Median Move (%)', 'Bars Since Last Pos Move', 'Bars Since Last Neg Move', 'Avg Gap Pos Moves', 'Avg Gap Neg Moves']], use_container_width=True)
+
+        else:
+            st.info("No combined analysis results to display. Click 'Run Combined Analysis' to start.")
